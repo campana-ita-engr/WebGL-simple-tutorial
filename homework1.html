@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+
+<head>
+  <meta charset="utf-8">
+  <title>homework1</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+  <script src="https://code.jquery.com/jquery-3.4.1.slim.min.js" integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js" integrity="sha384-wfSDF2E50Y2D1uUdj0O3uMBJnjuUD4Ih7YwaYd1iqfktj0Uod8GCExl3Og8ifwB6" crossorigin="anonymous"></script>
+
+  <script id="vertex-shader" type="x-shader/x-vertex">
+    #version 300 es
+
+    in  vec4 aPosition;
+    in  vec4 aColor;
+    in vec3 aNormal;
+
+    in vec2 a_texcoord;
+    out vec2 v_texcoord;
+
+    out vec4 vColor;
+    out vec3 v_normal,v_eyeCoords;
+
+    uniform mat4 uModelViewMatrix;
+    uniform mat4 uProjectionMatrix;
+
+    void main()
+    {
+        vec4 eyeCoords = uModelViewMatrix * aPosition;
+        gl_Position = uProjectionMatrix * eyeCoords;
+        v_normal = normalize(aNormal);
+        v_eyeCoords = eyeCoords.xyz/eyeCoords.w;
+        vColor = aColor;
+        v_texcoord = a_texcoord;
+    }
+    </script>
+
+  <script id="fragment-shader" type="x-shader/x-fragment">
+    #version 300 es
+
+    precision mediump float;
+
+    in vec4 vColor;
+    out vec4 fColor;
+
+    in vec2 v_texcoord;
+    uniform sampler2D u_texture;
+
+    uniform bool u_toggleLightMode;
+    uniform bool u_toogleTextures;
+
+    struct MaterialProperties {
+        vec3 diffuseColor;
+        vec3 specularColor;
+        float specularExponent;
+    };
+    struct LightProperties {
+        bool enabled;
+        vec4 position;
+        vec3 color;
+        vec3 spotDirection;  // Note: only a point light can be a spotlight
+        float spotCosineCutoff; // if <= 0, this is not a spotlight, if >= 1, the light cone shrinks to nothing
+        float spotExponent;
+        vec4 diffuseColor;
+        vec4 specularColor;
+    };
+
+    uniform mat4 uModelViewMatrixLights;
+    uniform MaterialProperties material; // do two-sided lighting, but assume front and back materials are the same
+    uniform LightProperties spotlight;
+    uniform LightProperties directional;
+    uniform mat3 uNormalMatrix;
+    in vec3 v_normal;
+    in vec3 v_eyeCoords;
+
+
+    vec3 lightingEquation( LightProperties light, MaterialProperties material,vec3 eyeCoords, vec3 N, vec3 V ) {
+      // N is normal vector, V is direction to viewer.
+      vec3 L, R; // Light direction and reflected light direction.
+      float spotFactor = 1.0;  // multiplier to account for spotlight
+      if ( light.position.w == 0.0 ) { // the light is a directional light
+        L = normalize( (uModelViewMatrixLights*light.position ).xyz);
+      }
+      else {  // the light is a spotlight or a pointlight
+        L = normalize( (uModelViewMatrixLights*light.position).xyz/light.position.w - v_eyeCoords );
+        if (light.spotCosineCutoff > 0.0) { // the light is a spotlight
+          vec3 D = -normalize(light.spotDirection);
+          float spotCosine = dot(D,L);
+          if (spotCosine >= light.spotCosineCutoff) {
+            spotFactor = pow(spotCosine,light.spotExponent);
+          }
+          else { // The point is outside the cone of light from the spotlight.
+            spotFactor = 0.0; // The light will add no color to the point.
+          }
+        }
+      }
+      if (dot(L,N) <= 0.0) {
+        return vec3(0.0);
+      }
+
+      vec3 E = -normalize(v_eyeCoords);
+      vec3 H = normalize(L + E);
+      float Kd = max(dot(L, N), 0.0);
+      vec3  diffuse = Kd*light.color * material.diffuseColor;
+      float Ks = pow(max(dot(N, H), 0.0), material.specularExponent);
+      vec3  specular = Ks * material.specularColor * light.color;
+
+      return spotFactor*(diffuse + specular);
+    }
+
+    vec3 lightingEquationCartoon( LightProperties light, MaterialProperties material,vec3 eyeCoords, vec3 N, vec3 V ) {
+      // N is normal vector, V is direction to viewer.
+      vec3 L, R; // Light direction and reflected light direction.
+      float spotFactor = 1.0;  // multiplier to account for spotlight
+      if ( light.position.w == 0.0 ) { // the light is a directional light
+        L = normalize( (uModelViewMatrixLights*light.position).xyz );
+      }
+      else {  // the light is a spotlight or a pointlight
+        L = normalize( (uModelViewMatrixLights*light.position).xyz/light.position.w - v_eyeCoords );
+        if (light.spotCosineCutoff > 0.0) { // the light is a spotlight
+          vec3 D = -normalize(light.spotDirection);
+          float spotCosine = dot(D,L);
+          if (spotCosine >= light.spotCosineCutoff) {
+            spotFactor = pow(spotCosine,light.spotExponent);
+          }
+          else { // The point is outside the cone of light from the spotlight.
+            spotFactor = 0.0; // The light will add no color to the point.
+          }
+        }
+      }
+      if (dot(L,N) <= 0.0) {
+        return vec3(0.0);
+      }
+
+      vec3  diffuse = vec3(0.0);
+      vec3 specular = vec3(0.0);
+
+      if(max(dot(L,N),0.0) >= 0.5){
+        diffuse = light.diffuseColor.xyz * material.diffuseColor;
+        specular = light.specularColor.xyz * material.specularColor;
+
+        return spotFactor*(specular+diffuse);
+      }else{
+        diffuse = light.diffuseColor.xyz * material.diffuseColor;
+        return spotFactor*diffuse;
+      }
+      return vec3(0.0);       // we will never arrive here but the compile want a return at the end
+    }
+
+    void
+    main()
+    {
+        vec3 normal = normalize( uNormalMatrix*v_normal );
+        vec3 viewDirection = normalize( -v_eyeCoords);  // (Assumes a perspective projection.)
+        vec3 spotlight_component = vec3(0.0);
+        vec3 directional_component = vec3(0.0);
+        vec3 color = vec3(0.0);
+        if(!u_toggleLightMode){
+          if (spotlight.enabled){
+            spotlight_component += lightingEquation( spotlight, material, v_eyeCoords, normal, viewDirection);
+            color += spotlight_component;
+          }
+          if(directional.enabled){
+            directional_component += lightingEquation( directional, material, v_eyeCoords, normal, viewDirection);
+            color += directional_component;
+          }
+        }else{
+          if (spotlight.enabled){
+            spotlight_component += lightingEquationCartoon( spotlight, material, v_eyeCoords, normal, viewDirection);
+            color += spotlight_component;
+          }
+          if(directional.enabled){
+            directional_component += lightingEquationCartoon( directional, material, v_eyeCoords, normal, viewDirection);
+            color += directional_component;
+          }
+        }
+
+        color = normalize(color);
+
+        if(u_toogleTextures){
+          fColor.xyz = vColor.xyz*color*texture(u_texture, v_texcoord).xyz;
+        }else{
+          fColor.xyz = vColor.xyz*color;
+        }
+
+        fColor.x = max(min(fColor.x,1.0),0.0);
+        fColor.y = max(min(fColor.y,1.0),0.0);
+        fColor.z = max(min(fColor.z,1.0),0.0);
+        fColor.w = 1.0;
+    }
+    </script>
+
+  <script type="text/javascript" src="../Common/initShaders.js"></script>
+  <script type="text/javascript" src="../Common/MVnew.js"></script>
+  <script type="text/javascript" src="homework1.js"></script>
+
+  <style media="screen">
+    .controls-div {
+      max-width: 600px;
+      padding: 2em;
+    }
+
+    .controls-container {
+      display: grid;
+      grid-template-columns: auto auto auto auto;
+      grid-gap: 10px;
+    }
+
+    .canvas-container {
+      text-align: center;
+    }
+
+    #gl-canvas {
+      border: 1px solid black;
+      border-radius: 3em;
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+
+  <div class="controls-container">
+
+
+    <div class="controls-div ">
+      <h3>Camera Controls</h3><br /><br />
+      <button id="Button1">Increase Z</button>
+      <button id="Button2">Decrease Z</button>
+      <br /><br />
+      <button id="Button3">Increase R</button>
+      <button id="Button4">Decrease R</button>
+      <br /><br />
+      <button id="Button5">Increase theta</button>
+      <button id="Button6">Decrease theta</button>
+      <br /><br />
+      <button id="Button7">Increase phi</button>
+      <button id="Button8">Decrease phi</button>
+      <br />
+      <hr />
+      <h3>Toggles</h3><br />
+      <button id="ToggleLightMode">Toggle Light Mode</button>
+      <button id="ToggleTexture">Toggle Textures</button>
+      <br />
+      <hr />
+      <h3>Reset</h3><br />
+      <button id="ResetObject">Reset Object Position</button>
+      <button id="ResetCamera">Reset Camera</button>
+      <br /><br />
+      <button id="ResetSpotlight">Reset Spotlight</button>
+      <button id="ResetDirectional">Reset Directional Light</button>
+    </div>
+
+    <div class="controls-div ">
+      <h3>Spotlight Controls</h3><br />
+      <button id="ToggleSpotlight">Toggle Spotlight : OFF</button><br /><br />
+      <label>spotCosineCutoff:</label>
+      <input id="spotCosineCutoff" type="range" min="500" max="1000" value="700">
+      <hr />
+      <label>spotDirectionX:</label>
+      <input id="spotDirectionX" type="range" min="-100" max="100" value="0">
+      <label>spotDirectionY:</label>
+      <input id="spotDirectionY" type="range" min="-100" max="100" value="0">
+      <label>spotDirectionZ:</label>
+      <input id="spotDirectionZ" type="range" min="-100" max="100" value="0">
+      <hr />
+      <label>spotPositionX:</label>
+      <input id="spotPositionX" type="range" min="-100" max="100" value="0">
+      <label>spotPositionY:</label>
+      <input id="spotPositionY" type="range" min="-100" max="100" value="0">
+      <label>spotPositionZ:</label>
+      <input id="spotPositionZ" type="range" min="-100" max="100" value="0">
+    </div>
+
+    <div class="controls-div ">
+      <h3>Directional Light Controls</h3><br />
+      <button id="ToggleDirectional">Toggle Directional : OFF</button><br /><br />
+
+      <label>DirectionalX :</label>
+      <input id="DirectionalX" type="range" min="-100" max="100" value="0">
+      <label>DirectionalY :</label>
+      <input id="DirectionalY" type="range" min="-100" max="100" value="0">
+      <label>DirectionalZ :</label>
+      <input id="DirectionalZ" type="range" min="-100" max="100" value="0">
+    </div>
+
+    <div class="controls-div">
+      <h3>Rotate & Translate</h3>
+      <label>RotateX :</label>
+      <input id="RotateX" type="range" min="-180" max="180" value="0">
+      <label>RotateY :</label>
+      <input id="RotateY" type="range" min="-180" max="180" value="0">
+      <label>RotateZ :</label>
+      <input id="RotateZ" type="range" min="-180" max="180" value="0">
+      <hr />
+      <label>TranslateX :</label>
+      <input id="TranslateX" type="range" min="-100" max="100" value="0">
+      <label>TranslateY :</label>
+      <input id="TranslateY" type="range" min="-100" max="100" value="0">
+      <label>TranslateZ :</label>
+      <input id="TranslateZ" type="range" min="-100" max="100" value="0">
+    </div>
+
+  </div>
+
+  <div class="canvas-container">
+    <canvas id="gl-canvas" width="512" height="512">
+      Oops ... your browser doesn't support the HTML5 canvas element
+    </canvas>
+  </div>
+</body>
+
+</html>
